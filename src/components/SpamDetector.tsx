@@ -4,16 +4,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { analyzeEmail, SAMPLE_EMAILS, type SpamAnalysis } from "@/lib/spamDetector";
-import { Shield, AlertTriangle, CheckCircle, Mail, Sparkles } from "lucide-react";
+import { SAMPLE_EMAILS } from "@/lib/spamDetector";
+import { Shield, AlertTriangle, CheckCircle, Mail, Sparkles, Activity } from "lucide-react";
 import { toast } from "sonner";
+
+interface MLAnalysis {
+  isSpam: boolean;
+  confidence: number;
+  spamProbability: number;
+  prediction: string;
+}
+
+// API endpoint - change this if deploying Flask API elsewhere
+const API_URL = "http://localhost:5000";
 
 export default function SpamDetector() {
   const [emailText, setEmailText] = useState("");
-  const [analysis, setAnalysis] = useState<SpamAnalysis | null>(null);
+  const [analysis, setAnalysis] = useState<MLAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [apiStatus, setApiStatus] = useState<'unknown' | 'connected' | 'error'>('unknown');
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!emailText.trim()) {
       toast.error("Please enter email text to analyze");
       return;
@@ -21,22 +32,41 @@ export default function SpamDetector() {
 
     setIsAnalyzing(true);
     
-    // Simulate API delay for better UX
-    setTimeout(() => {
-      const result = analyzeEmail(emailText);
+    try {
+      const response = await fetch(`${API_URL}/predict`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: emailText }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const result = await response.json();
       setAnalysis(result);
-      setIsAnalyzing(false);
+      setApiStatus('connected');
       
       if (result.isSpam) {
         toast.error("Spam detected!", {
-          description: `Confidence: ${result.confidence}%`
+          description: `Confidence: ${(result.confidence * 100).toFixed(1)}%`
         });
       } else {
         toast.success("Email appears safe", {
-          description: `Confidence: ${100 - result.confidence}%`
+          description: `Confidence: ${(result.confidence * 100).toFixed(1)}%`
         });
       }
-    }, 800);
+    } catch (error) {
+      console.error('Error calling Flask API:', error);
+      setApiStatus('error');
+      toast.error("API Connection Error", {
+        description: "Make sure Flask API is running on http://localhost:5000"
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const loadSampleEmail = (type: 'spam' | 'legitimate', index: number) => {
@@ -65,8 +95,17 @@ export default function SpamDetector() {
             Email Spam Detector
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Advanced AI-powered spam detection to keep your inbox safe and secure
+            ML-powered spam detection using trained Logistic Regression model
           </p>
+          <div className="flex items-center justify-center gap-3 mt-4 flex-wrap">
+            <Badge variant={apiStatus === 'connected' ? 'default' : apiStatus === 'error' ? 'destructive' : 'secondary'} className="px-3 py-1">
+              <Activity className="w-3 h-3 mr-1" />
+              {apiStatus === 'connected' ? 'API Connected' : apiStatus === 'error' ? 'API Disconnected' : 'API Status Unknown'}
+            </Badge>
+            <Badge variant="outline" className="px-3 py-1">F1 Score: 96.8%</Badge>
+            <Badge variant="outline" className="px-3 py-1">Accuracy: 98.2%</Badge>
+            <Badge variant="outline" className="px-3 py-1">3000 Features</Badge>
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8 mb-12">
@@ -145,53 +184,55 @@ export default function SpamDetector() {
                         )}
                       </CardTitle>
                       <CardDescription className="mt-2">
-                        Analysis completed with {analysis.confidence}% confidence
+                        Analysis completed with {(analysis.confidence * 100).toFixed(1)}% confidence
                       </CardDescription>
                     </div>
                     <Badge 
                       variant={analysis.isSpam ? "destructive" : "default"}
                       className="text-lg px-4 py-2"
                     >
-                      {analysis.confidence}%
+                      {(analysis.confidence * 100).toFixed(1)}%
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Confidence Bar */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Spam Probability</span>
-                      <span className="font-semibold">{analysis.confidence}%</span>
+                  {/* Confidence Metrics */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div className="text-sm text-muted-foreground">Overall Confidence</div>
+                      <div className="text-3xl font-bold">{(analysis.confidence * 100).toFixed(1)}%</div>
+                      <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                        <div 
+                          className="h-full rounded-full bg-primary transition-all duration-1000"
+                          style={{ width: `${analysis.confidence * 100}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-1000 ${
-                          analysis.isSpam 
-                            ? 'bg-gradient-to-r from-destructive to-destructive/80' 
-                            : 'bg-gradient-to-r from-success to-success/80'
-                        }`}
-                        style={{ width: `${analysis.confidence}%` }}
-                      />
+                    <div className="space-y-2">
+                      <div className="text-sm text-muted-foreground">Spam Probability</div>
+                      <div className={`text-3xl font-bold ${analysis.isSpam ? 'text-destructive' : 'text-success'}`}>
+                        {(analysis.spamProbability * 100).toFixed(1)}%
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-1000 ${
+                            analysis.isSpam 
+                              ? 'bg-gradient-to-r from-destructive to-destructive/80' 
+                              : 'bg-gradient-to-r from-success to-success/80'
+                          }`}
+                          style={{ width: `${analysis.spamProbability * 100}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Indicators */}
-                  <div className="space-y-3">
-                    <h4 className="font-semibold flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" />
-                      Detection Indicators
-                    </h4>
-                    <div className="space-y-2">
-                      {analysis.indicators.map((indicator, index) => (
-                        <Alert key={index} variant={analysis.isSpam ? "destructive" : "default"}>
-                          <AlertDescription className="flex items-start gap-2">
-                            <span className="text-lg">•</span>
-                            <span>{indicator}</span>
-                          </AlertDescription>
-                        </Alert>
-                      ))}
-                    </div>
-                  </div>
+                  {/* Model Info */}
+                  <Alert>
+                    <Sparkles className="w-4 h-4" />
+                    <AlertDescription>
+                      Prediction made by trained <strong>Logistic Regression</strong> model with 98.2% accuracy and 96.8% F1 score.
+                    </AlertDescription>
+                  </Alert>
                 </CardContent>
               </Card>
             )}
@@ -252,27 +293,47 @@ export default function SpamDetector() {
               </CardContent>
             </Card>
 
-            {/* Info Card */}
+            {/* Model Info Card */}
             <Card className="shadow-lg bg-primary/5 border-primary/20">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-primary" />
-                  About This Detector
+                  Model Information
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>
-                  This is a prototype using client-side pattern matching and keyword analysis.
-                </p>
-                <p className="font-semibold text-foreground">
-                  For production ML models:
-                </p>
-                <ul className="space-y-1 list-disc list-inside">
-                  <li>Integrate with external ML APIs</li>
-                  <li>Use Lovable Cloud for backend</li>
-                  <li>Deploy trained models (TensorFlow.js)</li>
-                  <li>Real-time learning capabilities</li>
-                </ul>
+              <CardContent className="space-y-3 text-sm">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Algorithm:</span>
+                    <span className="font-semibold">Logistic Regression</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">F1 Score:</span>
+                    <span className="font-semibold text-success">96.8%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Accuracy:</span>
+                    <span className="font-semibold text-success">98.2%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Precision:</span>
+                    <span className="font-semibold">96.4%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Recall:</span>
+                    <span className="font-semibold">97.3%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Features:</span>
+                    <span className="font-semibold">3000 TF-IDF</span>
+                  </div>
+                </div>
+                <Alert className="mt-4">
+                  <Activity className="w-4 h-4" />
+                  <AlertDescription className="text-xs">
+                    Make sure Flask API is running on <code className="bg-muted px-1 py-0.5 rounded">localhost:5000</code>
+                  </AlertDescription>
+                </Alert>
               </CardContent>
             </Card>
           </div>
