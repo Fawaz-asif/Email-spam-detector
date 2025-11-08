@@ -3,6 +3,7 @@ from flask_cors import CORS
 import pickle
 import re
 import os
+import json
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React app
@@ -20,9 +21,7 @@ print("Model loaded successfully!")
 
 def preprocess_text(text):
     """Preprocess text similar to training preprocessing"""
-    # Convert to lowercase and remove non-alphabetic characters
     text = re.sub(r'[^a-zA-Z]', ' ', text.lower())
-    # Remove extra spaces
     text = ' '.join(text.split())
     return text
 
@@ -48,7 +47,6 @@ def predict():
             return jsonify({'error': 'No text provided'}), 400
         
         email_text = data['text']
-        
         if not email_text or len(email_text.strip()) == 0:
             return jsonify({'error': 'Email text cannot be empty'}), 400
         
@@ -67,7 +65,6 @@ def predict():
             confidence = float(max(probability))
             spam_probability = float(probability[1]) if len(probability) > 1 else (1.0 if prediction == 1 else 0.0)
         except AttributeError:
-            # Model doesn't support predict_proba
             confidence = 1.0
             spam_probability = 1.0 if prediction == 1 else 0.0
         
@@ -89,12 +86,16 @@ def model_info():
     """Get model metadata"""
     metadata_path = os.path.join(os.path.dirname(__file__), '..', 'public', 'models', 'model_metadata.json')
     try:
-        import json
         with open(metadata_path, 'r') as f:
             metadata = json.load(f)
         return jsonify(metadata)
     except Exception as e:
         return jsonify({'error': f'Could not load metadata: {str(e)}'}), 500
+
+# Optional: Add root route to avoid 404 at /
+@app.route('/')
+def home():
+    return "Flask backend is running!"
 
 if __name__ == '__main__':
     print("Starting Flask API server...")
